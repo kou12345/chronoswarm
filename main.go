@@ -99,7 +99,7 @@ func main() {
 					break
 				}
 
-				newTimer := &Timer{Label: args[1], Finished: true} // タイマーが終了したと仮定し、再起動を許可する
+				newTimer := &Timer{Label: args[1], Finished: false}
 				timers[args[1]] = newTimer
 				newTimer.StartTimer()
 
