@@ -1,6 +1,7 @@
 package main
 
 import (
+	"context"
 	"fmt"
 	"log"
 	"os"
@@ -28,29 +29,29 @@ type Timer struct {
 	Start    time.Time
 	Ticker   *time.Ticker
 	Finished bool
+	Ctx      context.Context
+	Cancel   context.CancelFunc
 }
 
 func (t *Timer) StartTimer() {
 	t.Start = time.Now()
 	t.Finished = false
 	t.Ticker = time.NewTicker(1 * time.Second)
+	t.Ctx, t.Cancel = context.WithCancel(context.Background())
+
 	fmt.Fprintf(textView, "Timer '%s' started\n", t.Label)
 
 	go func() {
 		for {
 			select {
 			case <-t.Ticker.C:
-				if t.Finished {
-					// ここが動作していない
-					log.Println("LOG: Timer finished")
-					fmt.Fprintf(logView, "Timer '%s' finished\n", t.Label)
-					return
-				}
-				// 現在のtextViewの内容を更新する
-
 				app.QueueUpdateDraw(func() {
 					fmt.Fprintf(textView, "Timer '%s': %s \r", t.Label, time.Since(t.Start).Round(time.Second))
 				})
+			case <-t.Ctx.Done():
+				log.Println("LOG: Timer stopped")
+				fmt.Fprintf(logView, "Timer '%s' finished\n", t.Label)
+				return
 			}
 		}
 	}()
@@ -64,12 +65,16 @@ func (t *Timer) StopTimer() {
 		log.Println("LOG: Ticker stopped")
 		t.Finished = true
 		log.Println("LOG: Finished set to true")
+		t.Cancel()
 
-		// これが実行されるとアプリケーションが停止する
-		// app.QueueUpdateDraw(func() {
-		// 	log.Println("LOG: QueueUpdateDraw")
-		// 	fmt.Fprintf(textView, "\nTimer '%s' stopped at %s\n", t.Label, time.Since(t.Start).Round(time.Second))
-		// })
+		// ! これが実行されるとアプリケーションが停止する
+		if app != nil {
+			log.Println("LOG: app is not nil")
+			app.QueueUpdateDraw(func() {
+				log.Println("LOG: QueueUpdateDraw")
+				fmt.Fprintf(textView, "\nTimer '%s' stopped at %s\n", t.Label, time.Since(t.Start).Round(time.Second))
+			})
+		}
 
 	}
 
