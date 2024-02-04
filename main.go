@@ -2,6 +2,8 @@ package main
 
 import (
 	"fmt"
+	"log"
+	"os"
 	"strings"
 	"time"
 
@@ -19,6 +21,7 @@ stop Timer1をすると、アプリケーションが停止する
 
 var app *tview.Application
 var textView *tview.TextView
+var logView *tview.TextView
 
 type Timer struct {
 	Label    string
@@ -38,10 +41,15 @@ func (t *Timer) StartTimer() {
 			select {
 			case <-t.Ticker.C:
 				if t.Finished {
+					// ここが動作していない
+					log.Println("LOG: Timer finished")
+					fmt.Fprintf(logView, "Timer '%s' finished\n", t.Label)
 					return
 				}
+				// 現在のtextViewの内容を更新する
+
 				app.QueueUpdateDraw(func() {
-					fmt.Fprintf(textView, "\rTimer '%s': %s", t.Label, time.Since(t.Start).Round(time.Second))
+					fmt.Fprintf(textView, "Timer '%s': %s \r", t.Label, time.Since(t.Start).Round(time.Second))
 				})
 			}
 		}
@@ -49,16 +57,35 @@ func (t *Timer) StartTimer() {
 }
 
 func (t *Timer) StopTimer() {
+	log.Println("START: StopTimer()")
+
 	if t.Ticker != nil {
 		t.Ticker.Stop()
+		log.Println("LOG: Ticker stopped")
 		t.Finished = true
-		app.QueueUpdateDraw(func() {
-			fmt.Fprintf(textView, "\nTimer '%s' stopped at %s\n", t.Label, time.Since(t.Start).Round(time.Second))
-		})
+		log.Println("LOG: Finished set to true")
+
+		// これが実行されるとアプリケーションが停止する
+		// app.QueueUpdateDraw(func() {
+		// 	log.Println("LOG: QueueUpdateDraw")
+		// 	fmt.Fprintf(textView, "\nTimer '%s' stopped at %s\n", t.Label, time.Since(t.Start).Round(time.Second))
+		// })
+
 	}
+
+	log.Println("END: StopTimer()")
 }
 
 func main() {
+
+	logFile, err := os.OpenFile("log.txt", os.O_CREATE|os.O_WRONLY|os.O_APPEND, 0666)
+	if err != nil {
+		log.Fatalf("ERROR: logファイルを開けませんでした: %s", err)
+	}
+	defer logFile.Close()
+
+	// logの出力先をファイルに変更
+	log.SetOutput(logFile)
 
 	app = tview.NewApplication()
 
@@ -68,6 +95,11 @@ func main() {
 	textView = tview.NewTextView()
 	textView.SetTitle("textView")
 	textView.SetBorder(true)
+
+	// logViewにログを表示する
+	logView = tview.NewTextView()
+	logView.SetTitle("logView")
+	logView.SetBorder(true)
 
 	// inputFieldにコマンドを入力する
 	inputField := tview.NewInputField()
@@ -90,12 +122,12 @@ func main() {
 			switch args[0] {
 			case "start":
 				if len(args) < 2 {
-					fmt.Fprintf(textView, "Invalid input. Please enter a command and a timer name.\n")
+					fmt.Fprintf(logView, "Invalid input. Please enter a command and a timer name.\n")
 					break
 				}
 
 				if timer, exists := timers[args[1]]; exists && !timer.Finished {
-					fmt.Fprintf(textView, "Timer is already running. Please stop it before starting a new one.\n")
+					fmt.Fprintf(logView, "Timer is already running. Please stop it before starting a new one.\n")
 					break
 				}
 
@@ -105,21 +137,21 @@ func main() {
 
 			case "stop":
 				if len(args) < 2 {
-					fmt.Fprintf(textView, "Invalid input. Please enter a command and a timer name.\n")
+					fmt.Fprintf(logView, "Invalid input. Please enter a command and a timer name.\n")
 					break
 				}
 
 				if timer, exists := timers[args[1]]; exists && !timer.Finished {
 					timer.StopTimer()
 				} else {
-					fmt.Fprintf(textView, "No active timer to stop.\n")
+					fmt.Fprintf(logView, "No active timer to stop.\n")
 				}
 
 			case "exit":
-				fmt.Fprintf(textView, "Exiting application.\n")
+				fmt.Fprintf(logView, "Exiting application.\n")
 				app.Stop()
 			default:
-				fmt.Fprintf(textView, "Invalid command. Please enter 'start', 'stop', or 'exit'.\n")
+				fmt.Fprintf(logView, "Invalid command. Please enter 'start', 'stop', or 'exit'.\n")
 			}
 
 			// 入力フィールドをクリアする
@@ -133,7 +165,8 @@ func main() {
 	flex := tview.NewFlex()
 	flex.SetDirection(tview.FlexRow).
 		AddItem(inputField, 3, 0, true).
-		AddItem(textView, 0, 1, false)
+		AddItem(logView, 0, 1, false).
+		AddItem(textView, 0, 4, false)
 
 	if err := app.SetRoot(flex, true).Run(); err != nil {
 		panic(err)
