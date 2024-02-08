@@ -1,7 +1,6 @@
 package main
 
 import (
-	"context"
 	"fmt"
 	"log"
 	"os"
@@ -29,15 +28,17 @@ type Timer struct {
 	Start    time.Time
 	Ticker   *time.Ticker
 	Finished bool
-	Ctx      context.Context
-	Cancel   context.CancelFunc
+	stopChan chan bool
 }
 
 func (t *Timer) StartTimer() {
+	if t.Ticker != nil {
+		t.Ticker.Stop() // 既存のTickerがあれば停止します。
+	}
 	t.Start = time.Now()
 	t.Finished = false
 	t.Ticker = time.NewTicker(1 * time.Second)
-	t.Ctx, t.Cancel = context.WithCancel(context.Background())
+	t.stopChan = make(chan bool) // ストップチャンネルを再作成
 
 	fmt.Fprintf(textView, "Timer '%s' started\n", t.Label)
 
@@ -45,40 +46,38 @@ func (t *Timer) StartTimer() {
 		for {
 			select {
 			case <-t.Ticker.C:
+				if t.Finished {
+					fmt.Fprintf(logView, "Timer '%s' finished\n", t.Label)
+					return // タイマーが停止されたらループを終了
+				}
 				app.QueueUpdateDraw(func() {
 					fmt.Fprintf(textView, "Timer '%s': %s \r", t.Label, time.Since(t.Start).Round(time.Second))
 				})
-			case <-t.Ctx.Done():
-				log.Println("LOG: Timer stopped")
-				fmt.Fprintf(logView, "Timer '%s' finished\n", t.Label)
-				return
+			case <-t.stopChan:
+				return // ストップチャンネルがクローズされたらループを終了
 			}
 		}
 	}()
 }
 
 func (t *Timer) StopTimer() {
-	log.Println("START: StopTimer()")
-
+	log.Printf("START: StopTimer: %s\n", t.Label)
 	if t.Ticker != nil {
-		t.Ticker.Stop()
-		log.Println("LOG: Ticker stopped")
-		t.Finished = true
-		log.Println("LOG: Finished set to true")
-		t.Cancel()
+		log.Println("t.Ticker != nil")
+		t.Ticker.Stop()   // Tickerを停止
+		t.Ticker = nil    // Tickerをnilに設定
+		t.Finished = true // タイマーが終了したことを示す
 
-		// ! これが実行されるとアプリケーションが停止する
-		if app != nil {
-			log.Println("LOG: app is not nil")
-			app.QueueUpdateDraw(func() {
-				log.Println("LOG: QueueUpdateDraw")
-				fmt.Fprintf(textView, "\nTimer '%s' stopped at %s\n", t.Label, time.Since(t.Start).Round(time.Second))
-			})
-		}
-
+		log.Println("app.QueueUpdateDraw")
+		// app.QueueUpdateDraw(func() {
+		// 	fmt.Fprintf(textView, "\nTimer '%s' stopped at %s\n", t.Label, time.Since(t.Start).Round(time.Second))
+		// })
+		log.Println("app.QueueUpdateDraw finished")
+		close(t.stopChan) // ストップチャンネルをクローズしてゴルーチンを終了させる
+		t.stopChan = nil  // stopChanをnilにリセット（再スタートのため）
 	}
 
-	log.Println("END: StopTimer()")
+	log.Printf("END: StopTimer: %s finished\n", t.Label)
 }
 
 func main() {
