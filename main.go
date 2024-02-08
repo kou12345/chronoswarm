@@ -69,8 +69,9 @@ func (t *Timer) StopTimer() {
 		t.Finished = true // タイマーが終了したことを示す
 
 		log.Println("app.QueueUpdateDraw")
+		// ! ここのapp.QueueUpdateDrawが原因でアプリケーションが停止する
 		// app.QueueUpdateDraw(func() {
-		// 	fmt.Fprintf(textView, "\nTimer '%s' stopped at %s\n", t.Label, time.Since(t.Start).Round(time.Second))
+		// fmt.Fprintf(textView, "\nTimer '%s' stopped at %s\n", t.Label, time.Since(t.Start).Round(time.Second))
 		// })
 		log.Println("app.QueueUpdateDraw finished")
 		close(t.stopChan) // ストップチャンネルをクローズしてゴルーチンを終了させる
