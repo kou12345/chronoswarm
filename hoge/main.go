@@ -8,67 +8,68 @@ import (
 	"github.com/rivo/tview"
 )
 
+const refreshInterval = 500 * time.Millisecond
+
+var app *tview.Application
+
+type Timer struct {
+	Label    string
+	TextView *tview.TextView
+}
+
+func (timer *Timer) currentTimeString() string {
+	t := time.Now()
+	return fmt.Sprintf(t.Format("current time: 15:04:05"))
+}
+
+func (timer *Timer) updateTime() {
+	for {
+		time.Sleep(refreshInterval)
+		app.QueueUpdateDraw(func() {
+			timer.TextView.SetText(timer.currentTimeString())
+		})
+
+	}
+}
+
 func main() {
-	app := tview.NewApplication()
+	app = tview.NewApplication()
 
-	// テキストビューを作成します。
-	textView := tview.NewTextView()
-	textView.SetDynamicColors(true).
-		SetWrap(true).
-		SetBorder(true).
-		SetTitle("Current Time")
+	// コマンド入力欄
+	commandInputField := tview.NewInputField().SetLabel("Command: ")
+	// タイマー表示欄
+	timerView := tview.NewFlex().SetDirection(tview.FlexRow)
 
-	var ticker *time.Ticker
-	var stopChan chan bool // タイマーの停止制御用
+	// commandInputFieldのイベントハンドラを追加する
+	commandInputField.SetInputCapture(func(event *tcell.EventKey) *tcell.EventKey {
+		switch event.Key() {
+		case tcell.KeyEnter:
+			// 入力されたコマンドを取得
+			command := commandInputField.GetText()
 
-	startTicker := func() {
-		if ticker != nil {
-			ticker.Stop() // 既存のTickerがあれば停止します。
-		}
-		ticker = time.NewTicker(1 * time.Second)
-		stopChan = make(chan bool) // ストップチャネルを再作成
-
-		go func() {
-			for {
-				select {
-				case t := <-ticker.C:
-					app.QueueUpdateDraw(func() {
-						fmt.Fprintf(textView, "Current time: %s\n", t.Format(time.RFC1123))
-					})
-				case <-stopChan:
-					return // ストップチャネルがクローズされたらループを終了
-				}
+			// timer構造体を作成
+			timer := &Timer{
+				Label:    command,
+				TextView: tview.NewTextView(),
 			}
-		}()
-	}
 
-	stopTicker := func() {
-		if ticker != nil {
-			ticker.Stop()   // Tickerを停止します。
-			close(stopChan) // ストップチャネルをクローズしてゴルーチンを終了させる
-		}
-	}
+			go timer.updateTime()
 
-	// 最初にタイマーをスタートします。
-	startTicker()
+			// timerViewにtextViewを追加
+			timerView.AddItem(timer.TextView, 1, 1, false)
 
-	// アプリケーションを終了するためのショートカットキーを設定します。
-	textView.SetInputCapture(func(event *tcell.EventKey) *tcell.EventKey {
-		switch event.Rune() {
-		case 's': // 's'キーでタイマーを停止します。
-			stopTicker()
-		case 'r': // 'r'キーでタイマーを再スタートします。
-			startTicker()
+			// 入力欄をクリア
+			commandInputField.SetText("")
 		}
-		if event.Key() == tcell.KeyEscape {
-			stopTicker() // Tickerを停止します。
-			app.Stop()   // アプリケーションを終了します。
-		}
+
 		return event
 	})
 
-	// テキストビューをルートとしてアプリケーションを実行します。
-	if err := app.SetRoot(textView, true).Run(); err != nil {
+	flex := tview.NewFlex().SetDirection(tview.FlexRow).
+		AddItem(commandInputField, 0, 1, true).
+		AddItem(timerView, 0, 9, false)
+
+	if err := app.SetRoot(flex, true).SetFocus(flex).Run(); err != nil {
 		panic(err)
 	}
 }
