@@ -19,9 +19,11 @@ stop Timer1をすると、アプリケーションが停止する
 
 */
 
-var app *tview.Application
-var textView *tview.TextView
-var logView *tview.TextView
+var (
+	app                *tview.Application
+	timerTextViewTable *tview.Table
+	logView            *tview.TextView
+)
 
 type Timer struct {
 	Label    string
@@ -29,6 +31,7 @@ type Timer struct {
 	Ticker   *time.Ticker
 	Finished bool
 	stopChan chan bool
+	textView *tview.TextView
 }
 
 func (t *Timer) StartTimer() {
@@ -40,7 +43,9 @@ func (t *Timer) StartTimer() {
 	t.Ticker = time.NewTicker(1 * time.Second)
 	t.stopChan = make(chan bool) // ストップチャンネルを再作成
 
-	fmt.Fprintf(textView, "Timer '%s' started\n", t.Label)
+	// fmt.Fprintf(textView, "Timer '%s' started\n", t.Label)
+	t.textView.SetText(fmt.Sprintf("Timer '%s' started", t.Label))
+	timerTextViewTable.SetCell(0, 0, t.textView)
 
 	go func() {
 		for {
@@ -51,7 +56,9 @@ func (t *Timer) StartTimer() {
 					return // タイマーが停止されたらループを終了
 				}
 				app.QueueUpdateDraw(func() {
-					fmt.Fprintf(textView, "Timer '%s': %s \r", t.Label, time.Since(t.Start).Round(time.Second))
+					// fmt.Fprintf(textView, "Timer '%s': %s \r", t.Label, time.Since(t.Start).Round(time.Second))
+					t.textView.SetText(fmt.Sprintf("Timer '%s': %s", t.Label, time.Since(t.Start).Round(time.Second)))
+
 				})
 			case <-t.stopChan:
 				return // ストップチャンネルがクローズされたらループを終了
@@ -96,10 +103,10 @@ func main() {
 
 	timers := make(map[string]*Timer)
 
-	// textViewにTimerの情報を表示する
-	textView = tview.NewTextView()
-	textView.SetTitle("textView")
-	textView.SetBorder(true)
+	// Timer.textViewをまとめるview
+	timerTextViewTable = tview.NewTable()
+	timerTextViewTable.SetTitle("textView")
+	timerTextViewTable.SetBorder(true)
 
 	// logViewにログを表示する
 	logView = tview.NewTextView()
@@ -171,7 +178,7 @@ func main() {
 	flex.SetDirection(tview.FlexRow).
 		AddItem(inputField, 3, 0, true).
 		AddItem(logView, 0, 1, false).
-		AddItem(textView, 0, 4, false)
+		AddItem(timerTextViewTable, 0, 4, false)
 
 	if err := app.SetRoot(flex, true).Run(); err != nil {
 		panic(err)
