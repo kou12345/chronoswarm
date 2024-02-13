@@ -17,7 +17,8 @@ var timers map[string]*Timer
 type Timer struct {
 	Label     string
 	TextView  *tview.TextView
-	StartTime time.Time // タイマーの開始時刻
+	StartTime time.Time     // タイマーの開始時刻
+	stopChan  chan struct{} // タイマーを停止するためのチャンネル
 }
 
 func (timer *Timer) currentTimeString() string {
@@ -27,15 +28,20 @@ func (timer *Timer) currentTimeString() string {
 
 func (timer *Timer) updateTime() {
 	for {
-		time.Sleep(refreshInterval)
-		app.QueueUpdateDraw(func() {
-			now := time.Now()
-			elapsed := now.Sub(timer.StartTime)
-			hours := int(elapsed.Hours())
-			minutes := int(elapsed.Minutes()) % 60
-			seconds := int(elapsed.Seconds()) % 60
-			timer.TextView.SetText(fmt.Sprintf("Timer '%s': %02d:%02d:%02d", timer.Label, hours, minutes, seconds))
-		})
+		select {
+		case <-timer.stopChan: // タイマーを停止
+			return
+		case <-time.After(refreshInterval):
+			time.Sleep(refreshInterval)
+			app.QueueUpdateDraw(func() {
+				now := time.Now()
+				elapsed := now.Sub(timer.StartTime)
+				hours := int(elapsed.Hours())
+				minutes := int(elapsed.Minutes()) % 60
+				seconds := int(elapsed.Seconds()) % 60
+				timer.TextView.SetText(fmt.Sprintf("Timer '%s': %02d:%02d:%02d", timer.Label, hours, minutes, seconds))
+			})
+		}
 
 	}
 }
@@ -77,6 +83,7 @@ func main() {
 				Label:     timerName,
 				TextView:  tview.NewTextView(),
 				StartTime: time.Now(),
+				stopChan:  make(chan struct{}),
 			}
 
 			timers[timerName] = timer
@@ -88,6 +95,12 @@ func main() {
 
 			// 入力欄をクリア
 			commandInputField.SetText("")
+
+		case "stop":
+			if timer, ok := timers[timerName]; ok {
+				close(timer.stopChan)         // タイマーの停止制御用チャンネルを閉じる
+				commandInputField.SetText("") // 入力欄をクリア
+			}
 		}
 
 		return event
