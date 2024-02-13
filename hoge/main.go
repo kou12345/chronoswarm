@@ -18,7 +18,10 @@ type Timer struct {
 	Label     string
 	TextView  *tview.TextView
 	StartTime time.Time     // タイマーの開始時刻
+	Elapsed   time.Duration // タイマーの経過時間
 	stopChan  chan struct{} // タイマーを停止するためのチャンネル
+	IsRunning bool          // タイマーが実行中かどうかを示すフラグ
+
 }
 
 func (timer *Timer) currentTimeString() string {
@@ -27,12 +30,13 @@ func (timer *Timer) currentTimeString() string {
 }
 
 func (timer *Timer) updateTime() {
-	for {
+	timer.IsRunning = true
+	for timer.IsRunning {
 		select {
 		case <-timer.stopChan: // タイマーを停止
+			timer.IsRunning = false
 			return
 		case <-time.After(refreshInterval):
-			time.Sleep(refreshInterval)
 			app.QueueUpdateDraw(func() {
 				now := time.Now()
 				elapsed := now.Sub(timer.StartTime)
@@ -42,7 +46,6 @@ func (timer *Timer) updateTime() {
 				timer.TextView.SetText(fmt.Sprintf("Timer '%s': %02d:%02d:%02d", timer.Label, hours, minutes, seconds))
 			})
 		}
-
 	}
 }
 
@@ -97,10 +100,23 @@ func main() {
 			commandInputField.SetText("")
 
 		case "stop":
-			if timer, ok := timers[timerName]; ok {
-				close(timer.stopChan)         // タイマーの停止制御用チャンネルを閉じる
+			if timer, ok := timers[timerName]; ok && timer.IsRunning {
+				timer.IsRunning = false
+				close(timer.stopChan)                        // タイマーの停止制御用チャンネルを閉じる
+				timer.Elapsed += time.Since(timer.StartTime) // 経過時間を更新
+				commandInputField.SetText("")                // 入力欄をクリア
+			}
+
+		case "restart":
+			// タイマーが存在し、かつ停止している場合は再スタート
+			if timer, ok := timers[timerName]; ok && !timer.IsRunning {
+				timer.StartTime = time.Now().Add(-timer.Elapsed) // 過去に開始したことにする
+				timer.stopChan = make(chan struct{})
+				timer.IsRunning = true
+				go timer.updateTime()
 				commandInputField.SetText("") // 入力欄をクリア
 			}
+
 		}
 
 		return event
