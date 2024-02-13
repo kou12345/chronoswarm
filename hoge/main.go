@@ -13,8 +13,9 @@ const refreshInterval = 500 * time.Millisecond
 var app *tview.Application
 
 type Timer struct {
-	Label    string
-	TextView *tview.TextView
+	Label     string
+	TextView  *tview.TextView
+	StartTime time.Time // タイマーの開始時刻
 }
 
 func (timer *Timer) currentTimeString() string {
@@ -26,7 +27,13 @@ func (timer *Timer) updateTime() {
 	for {
 		time.Sleep(refreshInterval)
 		app.QueueUpdateDraw(func() {
-			timer.TextView.SetText(timer.currentTimeString())
+			now := time.Now()
+			elapsed := now.Sub(timer.StartTime)
+			hours := int(elapsed.Hours())
+			minutes := int(elapsed.Minutes()) % 60
+			seconds := int(elapsed.Seconds()) % 60
+			timer.TextView.SetText(fmt.Sprintf("Timer '%s': %02d:%02d:%02d", timer.Label, hours, minutes, seconds))
+
 		})
 
 	}
@@ -49,8 +56,9 @@ func main() {
 
 			// timer構造体を作成
 			timer := &Timer{
-				Label:    command,
-				TextView: tview.NewTextView(),
+				Label:     command,
+				TextView:  tview.NewTextView(),
+				StartTime: time.Now(),
 			}
 
 			go timer.updateTime()
