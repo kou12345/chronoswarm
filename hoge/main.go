@@ -2,6 +2,7 @@ package main
 
 import (
 	"fmt"
+	"strings"
 	"time"
 
 	"github.com/gdamore/tcell/v2"
@@ -11,6 +12,7 @@ import (
 const refreshInterval = 500 * time.Millisecond
 
 var app *tview.Application
+var timers map[string]*Timer
 
 type Timer struct {
 	Label     string
@@ -33,7 +35,6 @@ func (timer *Timer) updateTime() {
 			minutes := int(elapsed.Minutes()) % 60
 			seconds := int(elapsed.Seconds()) % 60
 			timer.TextView.SetText(fmt.Sprintf("Timer '%s': %02d:%02d:%02d", timer.Label, hours, minutes, seconds))
-
 		})
 
 	}
@@ -41,6 +42,7 @@ func (timer *Timer) updateTime() {
 
 func main() {
 	app = tview.NewApplication()
+	timers = make(map[string]*Timer)
 
 	// コマンド入力欄
 	commandInputField := tview.NewInputField().SetLabel("Command: ")
@@ -49,17 +51,35 @@ func main() {
 
 	// commandInputFieldのイベントハンドラを追加する
 	commandInputField.SetInputCapture(func(event *tcell.EventKey) *tcell.EventKey {
-		switch event.Key() {
-		case tcell.KeyEnter:
-			// 入力されたコマンドを取得
-			command := commandInputField.GetText()
+		if event.Key() != tcell.KeyEnter {
+			return event
+		}
+
+		// 入力されたコマンドを取得
+		command := commandInputField.GetText()
+		commandArgs := strings.Fields(command)
+
+		if len(commandArgs) != 2 {
+			return event
+		}
+
+		cmd, timerName := commandArgs[0], commandArgs[1]
+
+		switch cmd {
+		case "start":
+			// timerNameが既に存在する場合は何もしない
+			if _, ok := timers[timerName]; ok {
+				return event
+			}
 
 			// timer構造体を作成
 			timer := &Timer{
-				Label:     command,
+				Label:     timerName,
 				TextView:  tview.NewTextView(),
 				StartTime: time.Now(),
 			}
+
+			timers[timerName] = timer
 
 			go timer.updateTime()
 
