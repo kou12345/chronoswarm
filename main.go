@@ -2,8 +2,6 @@ package main
 
 import (
 	"fmt"
-	"log"
-	"os"
 	"strings"
 	"time"
 
@@ -11,176 +9,124 @@ import (
 	"github.com/rivo/tview"
 )
 
-/*
-TODO
+const refreshInterval = 500 * time.Millisecond
 
-start Timer1してから
-stop Timer1をすると、アプリケーションが停止する
-
-*/
-
-var (
-	app                *tview.Application
-	timerTextViewTable *tview.Table
-	logView            *tview.TextView
-)
+var app *tview.Application
+var timers map[string]*Timer
 
 type Timer struct {
-	Label    string
-	Start    time.Time
-	Ticker   *time.Ticker
-	Finished bool
-	stopChan chan bool
-	textView *tview.TextView
+	Label     string
+	TextView  *tview.TextView
+	StartTime time.Time     // タイマーの開始時刻
+	Elapsed   time.Duration // タイマーの経過時間
+	stopChan  chan struct{} // タイマーを停止するためのチャンネル
+	IsRunning bool          // タイマーが実行中かどうかを示すフラグ
+
 }
 
-func (t *Timer) StartTimer() {
-	if t.Ticker != nil {
-		t.Ticker.Stop() // 既存のTickerがあれば停止します。
-	}
-	t.Start = time.Now()
-	t.Finished = false
-	t.Ticker = time.NewTicker(1 * time.Second)
-	t.stopChan = make(chan bool) // ストップチャンネルを再作成
+func (timer *Timer) currentTimeString() string {
+	t := time.Now()
+	return fmt.Sprintf(t.Format("current time: 15:04:05"))
+}
 
-	// fmt.Fprintf(textView, "Timer '%s' started\n", t.Label)
-	t.textView.SetText(fmt.Sprintf("Timer '%s' started", t.Label))
-	timerTextViewTable.SetCell(0, 0, t.textView)
-
-	go func() {
-		for {
-			select {
-			case <-t.Ticker.C:
-				if t.Finished {
-					fmt.Fprintf(logView, "Timer '%s' finished\n", t.Label)
-					return // タイマーが停止されたらループを終了
-				}
-				app.QueueUpdateDraw(func() {
-					// fmt.Fprintf(textView, "Timer '%s': %s \r", t.Label, time.Since(t.Start).Round(time.Second))
-					t.textView.SetText(fmt.Sprintf("Timer '%s': %s", t.Label, time.Since(t.Start).Round(time.Second)))
-
-				})
-			case <-t.stopChan:
-				return // ストップチャンネルがクローズされたらループを終了
-			}
+func (timer *Timer) updateTime() {
+	timer.IsRunning = true
+	for timer.IsRunning {
+		select {
+		case <-timer.stopChan: // タイマーを停止
+			timer.IsRunning = false
+			return
+		case <-time.After(refreshInterval):
+			app.QueueUpdateDraw(func() {
+				now := time.Now()
+				elapsed := now.Sub(timer.StartTime)
+				hours := int(elapsed.Hours())
+				minutes := int(elapsed.Minutes()) % 60
+				seconds := int(elapsed.Seconds()) % 60
+				timer.TextView.SetText(fmt.Sprintf("Timer '%s': %02d:%02d:%02d", timer.Label, hours, minutes, seconds))
+			})
 		}
-	}()
-}
-
-func (t *Timer) StopTimer() {
-	log.Printf("START: StopTimer: %s\n", t.Label)
-	if t.Ticker != nil {
-		log.Println("t.Ticker != nil")
-		t.Ticker.Stop()   // Tickerを停止
-		t.Ticker = nil    // Tickerをnilに設定
-		t.Finished = true // タイマーが終了したことを示す
-
-		log.Println("app.QueueUpdateDraw")
-		// ! ここのapp.QueueUpdateDrawが原因でアプリケーションが停止する
-		// app.QueueUpdateDraw(func() {
-		// fmt.Fprintf(textView, "\nTimer '%s' stopped at %s\n", t.Label, time.Since(t.Start).Round(time.Second))
-		// })
-		log.Println("app.QueueUpdateDraw finished")
-		close(t.stopChan) // ストップチャンネルをクローズしてゴルーチンを終了させる
-		t.stopChan = nil  // stopChanをnilにリセット（再スタートのため）
 	}
-
-	log.Printf("END: StopTimer: %s finished\n", t.Label)
 }
 
 func main() {
-
-	logFile, err := os.OpenFile("log.txt", os.O_CREATE|os.O_WRONLY|os.O_APPEND, 0666)
-	if err != nil {
-		log.Fatalf("ERROR: logファイルを開けませんでした: %s", err)
-	}
-	defer logFile.Close()
-
-	// logの出力先をファイルに変更
-	log.SetOutput(logFile)
-
 	app = tview.NewApplication()
+	timers = make(map[string]*Timer)
 
-	timers := make(map[string]*Timer)
+	// コマンド入力欄
+	commandInputField := tview.NewInputField().SetLabel("Command: ")
+	// タイマー表示欄
+	timerView := tview.NewFlex().SetDirection(tview.FlexRow)
 
-	// Timer.textViewをまとめるview
-	timerTextViewTable = tview.NewTable()
-	timerTextViewTable.SetTitle("textView")
-	timerTextViewTable.SetBorder(true)
+	// commandInputFieldのイベントハンドラを追加する
+	commandInputField.SetInputCapture(func(event *tcell.EventKey) *tcell.EventKey {
+		if event.Key() != tcell.KeyEnter {
+			return event
+		}
 
-	// logViewにログを表示する
-	logView = tview.NewTextView()
-	logView.SetTitle("logView")
-	logView.SetBorder(true)
+		// 入力されたコマンドを取得
+		command := commandInputField.GetText()
+		commandArgs := strings.Fields(command)
 
-	// inputFieldにコマンドを入力する
-	inputField := tview.NewInputField()
-	inputField.SetLabel("input: ")
-	inputField.SetTitle("inputField").
-		SetBorder(true)
+		if len(commandArgs) != 2 {
+			return event
+		}
 
-	inputField.SetInputCapture(func(event *tcell.EventKey) *tcell.EventKey {
-		switch event.Key() {
-		case tcell.KeyEnter:
-			// ここで入力されたコマンドを処理する
-			// 入力された文字列を取得する
-			inputText := inputField.GetText()
+		cmd, timerName := commandArgs[0], commandArgs[1]
 
-			// inputTextをスペースで分割する
-			// args[0]にコマンド、args[1]にタイマー名が入る
-			// 例: "start Timer1" -> args[0] = "start", args[1] = "Timer1"
-			args := strings.SplitN(inputText, " ", 2)
-
-			switch args[0] {
-			case "start":
-				if len(args) < 2 {
-					fmt.Fprintf(logView, "Invalid input. Please enter a command and a timer name.\n")
-					break
-				}
-
-				if timer, exists := timers[args[1]]; exists && !timer.Finished {
-					fmt.Fprintf(logView, "Timer is already running. Please stop it before starting a new one.\n")
-					break
-				}
-
-				newTimer := &Timer{Label: args[1], Finished: false}
-				timers[args[1]] = newTimer
-				newTimer.StartTimer()
-
-			case "stop":
-				if len(args) < 2 {
-					fmt.Fprintf(logView, "Invalid input. Please enter a command and a timer name.\n")
-					break
-				}
-
-				if timer, exists := timers[args[1]]; exists && !timer.Finished {
-					timer.StopTimer()
-				} else {
-					fmt.Fprintf(logView, "No active timer to stop.\n")
-				}
-
-			case "exit":
-				fmt.Fprintf(logView, "Exiting application.\n")
-				app.Stop()
-			default:
-				fmt.Fprintf(logView, "Invalid command. Please enter 'start', 'stop', or 'exit'.\n")
+		switch cmd {
+		case "start":
+			// timerNameが既に存在する場合は何もしない
+			if _, ok := timers[timerName]; ok {
+				return event
 			}
 
-			// 入力フィールドをクリアする
-			inputField.SetText("")
+			// timer構造体を作成
+			timer := &Timer{
+				Label:     timerName,
+				TextView:  tview.NewTextView(),
+				StartTime: time.Now(),
+				stopChan:  make(chan struct{}),
+			}
 
-			return nil
+			timers[timerName] = timer
+
+			go timer.updateTime()
+
+			// timerViewにtextViewを追加
+			timerView.AddItem(timer.TextView, 1, 1, false)
+
+			// 入力欄をクリア
+			commandInputField.SetText("")
+
+		case "stop":
+			if timer, ok := timers[timerName]; ok && timer.IsRunning {
+				timer.IsRunning = false
+				close(timer.stopChan)                        // タイマーの停止制御用チャンネルを閉じる
+				timer.Elapsed += time.Since(timer.StartTime) // 経過時間を更新
+				commandInputField.SetText("")                // 入力欄をクリア
+			}
+
+		case "restart":
+			// タイマーが存在し、かつ停止している場合は再スタート
+			if timer, ok := timers[timerName]; ok && !timer.IsRunning {
+				timer.StartTime = time.Now().Add(-timer.Elapsed) // 過去に開始したことにする
+				timer.stopChan = make(chan struct{})
+				timer.IsRunning = true
+				go timer.updateTime()
+				commandInputField.SetText("") // 入力欄をクリア
+			}
+
 		}
+
 		return event
 	})
 
-	flex := tview.NewFlex()
-	flex.SetDirection(tview.FlexRow).
-		AddItem(inputField, 3, 0, true).
-		AddItem(logView, 0, 1, false).
-		AddItem(timerTextViewTable, 0, 4, false)
+	flex := tview.NewFlex().SetDirection(tview.FlexRow).
+		AddItem(commandInputField, 0, 1, true).
+		AddItem(timerView, 0, 9, false)
 
-	if err := app.SetRoot(flex, true).Run(); err != nil {
+	if err := app.SetRoot(flex, true).SetFocus(flex).Run(); err != nil {
 		panic(err)
 	}
 }
