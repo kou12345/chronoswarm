@@ -15,37 +15,71 @@ var app *tview.Application
 var timers map[string]*Timer
 
 type Timer struct {
-	Label     string
-	TextView  *tview.TextView
-	StartTime time.Time     // タイマーの開始時刻
-	Elapsed   time.Duration // タイマーの経過時間
+	label     string
+	textView  *tview.TextView
+	startTime time.Time     // タイマーの開始時刻
+	elapsed   time.Duration // タイマーの経過時間
 	stopChan  chan struct{} // タイマーを停止するためのチャンネル
-	IsRunning bool          // タイマーが実行中かどうかを示すフラグ
-
-}
-
-func (timer *Timer) currentTimeString() string {
-	t := time.Now()
-	return fmt.Sprintf(t.Format("current time: 15:04:05"))
+	isRunning bool          // タイマーが実行中かどうかを示すフラグ
 }
 
 func (timer *Timer) updateTime() {
-	timer.IsRunning = true
-	for timer.IsRunning {
+	timer.isRunning = true
+	for timer.isRunning {
 		select {
 		case <-timer.stopChan: // タイマーを停止
-			timer.IsRunning = false
+			timer.isRunning = false
 			return
 		case <-time.After(refreshInterval):
 			app.QueueUpdateDraw(func() {
 				now := time.Now()
-				elapsed := now.Sub(timer.StartTime)
+				elapsed := now.Sub(timer.startTime)
 				hours := int(elapsed.Hours())
 				minutes := int(elapsed.Minutes()) % 60
 				seconds := int(elapsed.Seconds()) % 60
-				timer.TextView.SetText(fmt.Sprintf("Timer '%s': %02d:%02d:%02d", timer.Label, hours, minutes, seconds))
+				timer.textView.SetText(fmt.Sprintf("Timer '%s': %02d:%02d:%02d", timer.label, hours, minutes, seconds))
 			})
 		}
+	}
+}
+
+func startTimer(timerName string, timerView *tview.Flex) {
+	if _, ok := timers[timerName]; ok {
+		// 既に存在する場合は何もしない
+		return
+	}
+
+	timer := &Timer{
+		label:     timerName,
+		textView:  tview.NewTextView(),
+		startTime: time.Now(),
+		stopChan:  make(chan struct{}),
+		isRunning: true,
+	}
+
+	timers[timerName] = timer
+
+	go timer.updateTime()
+
+	// timerViewにtextViewを追加
+	timerView.AddItem(timer.textView, 1, 1, false)
+}
+
+func stopTimer(timerName string) {
+	if timer, ok := timers[timerName]; ok && timer.isRunning {
+		timer.isRunning = false
+		close(timer.stopChan)                        // タイマーの停止制御用チャンネルを閉じる
+		timer.elapsed += time.Since(timer.startTime) // 経過時間を更新
+	}
+}
+
+func restartTimer(timerName string) {
+	// タイマーが存在し、かつ停止している場合は再スタート
+	if timer, ok := timers[timerName]; ok && !timer.isRunning {
+		timer.startTime = time.Now().Add(-timer.elapsed) // 過去に開始したことにする
+		timer.stopChan = make(chan struct{})
+		timer.isRunning = true
+		go timer.updateTime()
 	}
 }
 
@@ -76,48 +110,17 @@ func main() {
 
 		switch cmd {
 		case "start":
-			// timerNameが既に存在する場合は何もしない
-			if _, ok := timers[timerName]; ok {
-				return event
-			}
-
-			// timer構造体を作成
-			timer := &Timer{
-				Label:     timerName,
-				TextView:  tview.NewTextView(),
-				StartTime: time.Now(),
-				stopChan:  make(chan struct{}),
-			}
-
-			timers[timerName] = timer
-
-			go timer.updateTime()
-
-			// timerViewにtextViewを追加
-			timerView.AddItem(timer.TextView, 1, 1, false)
-
-			// 入力欄をクリア
-			commandInputField.SetText("")
+			startTimer(timerName, timerView)
 
 		case "stop":
-			if timer, ok := timers[timerName]; ok && timer.IsRunning {
-				timer.IsRunning = false
-				close(timer.stopChan)                        // タイマーの停止制御用チャンネルを閉じる
-				timer.Elapsed += time.Since(timer.StartTime) // 経過時間を更新
-				commandInputField.SetText("")                // 入力欄をクリア
-			}
+			stopTimer(timerName)
 
 		case "restart":
-			// タイマーが存在し、かつ停止している場合は再スタート
-			if timer, ok := timers[timerName]; ok && !timer.IsRunning {
-				timer.StartTime = time.Now().Add(-timer.Elapsed) // 過去に開始したことにする
-				timer.stopChan = make(chan struct{})
-				timer.IsRunning = true
-				go timer.updateTime()
-				commandInputField.SetText("") // 入力欄をクリア
-			}
-
+			restartTimer(timerName)
 		}
+
+		// 入力欄をクリア
+		commandInputField.SetText("")
 
 		return event
 	})
