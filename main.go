@@ -100,7 +100,9 @@ func main() {
 
 		// 入力されたコマンドを取得
 		command := commandInputField.GetText()
-		commandArgs := strings.Fields(command)
+
+		// コマンドを最初のスペースで分割
+		commandArgs := strings.SplitN(command, " ", 2)
 
 		if len(commandArgs) != 2 {
 			return event
