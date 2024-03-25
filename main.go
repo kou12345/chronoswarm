@@ -83,6 +83,13 @@ func restartTimer(timerName string) {
 	}
 }
 
+func deleteTimer(timerName string) {
+	if _, ok := timers[timerName]; ok {
+		stopTimer(timerName)
+		delete(timers, timerName)
+	}
+}
+
 func main() {
 	app = tview.NewApplication()
 	timers = make(map[string]*Timer)
@@ -113,12 +120,12 @@ func main() {
 		switch cmd {
 		case "start":
 			startTimer(timerName, timerView)
-
 		case "stop":
 			stopTimer(timerName)
-
 		case "restart":
 			restartTimer(timerName)
+		case "delete":
+			deleteTimer(timerName)
 		}
 
 		// 入力欄をクリア
